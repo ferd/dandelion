@@ -1,0 +1,65 @@
+name: Publish tarball
+# https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
+# https://grrr.tech/posts/2021/github-actions-assume-role/
+
+on:
+  push:
+    tags: [ "v[0-9]+.[0-9]+.[0-9]+" ]
+
+
+env:
+  BUCKET_NAME: ferd.dandelion
+  RELNAME: dandelion
+
+jobs:
+
+  build:
+    name: Prepare build artifacts
+    runs-on: ubuntu-latest
+
+    container:
+      image: erlang:25.0.2
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build a tarball
+        working-directory: erlang
+        run: |
+          rebar3 as prod tar
+          BUILD=$(ls _build/prod/rel/${{ env.RELNAME }}/${{ env.RELNAME }}-*.tar.gz)
+          mkdir ../_artifacts
+          cp $BUILD ../_artifacts/${{ env.RELNAME }}-${GITHUB_REF##*/}.tar.gz
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: artifacts
+          path: _artifacts
+          retention-days: 1
+
+  upload:
+    name: Publish build artifacts
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: artifacts
+          path: _artifacts
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::874886211697:role/github-actions.s3
+          aws-region: us-west-2
+      - name:  Put release in bucket
+        run: |
+          aws s3 cp _artifacts/${{ env.RELNAME }}-*.tar.gz s3://${{ env.BUCKET_NAME }}/
+          echo ${GITHUB_REF##*/} > _artifacts/${{ env.RELNAME }}-latest
+          aws s3 cp _artifacts/${{ env.RELNAME }}-latest s3://${{ env.BUCKET_NAME }}/
+
