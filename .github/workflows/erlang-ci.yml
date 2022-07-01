@@ -23,4 +23,7 @@ jobs:
     - name: Run validation checks
       working-directory: erlang
       run: rebar3 check
+    - name: Release can be built
+      working-directory: erlang
+      run: rebar3 as prod release
 
