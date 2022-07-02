@@ -8,7 +8,7 @@ on:
 
 
 env:
-  BUCKET_NAME: ferd.dandelion
+  BUCKET_NAME: ferd-dandelion
   RELNAME: dandelion
 
 jobs:
@@ -56,7 +56,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v1
         with:
           role-to-assume: arn:aws:iam::874886211697:role/github-actions.s3
-          aws-region: us-west-2
+          aws-region: us-east-1
       - name:  Put release in bucket
         run: |
           aws s3 cp _artifacts/${{ env.RELNAME }}-*.tar.gz s3://${{ env.BUCKET_NAME }}/
