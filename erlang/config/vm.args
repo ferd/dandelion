@@ -1,6 +1,7 @@
--sname dandelion
+-sname dandelion@localhost
 
 -setcookie dandelion_cookie
 
 +K true
 +A30
++sbwt none

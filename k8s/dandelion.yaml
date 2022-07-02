@@ -1,0 +1,174 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: dandelion
+  labels:
+    name: dandelion
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dandelion-deployment
+  namespace: dandelion
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dandelion
+  template:
+    metadata:
+      labels:
+        app: dandelion
+    spec:
+      volumes:
+      - name: release
+        emptyDir: {}
+      - name: scripts
+        configMap:
+          name: dandelion-scripts-configmap
+          defaultMode: 0555 # +r, +x
+      # initContainers run first and must terminate without error for the rest to boot
+      initContainers:
+      - name: dandelion-bootstrap
+        image: erlang:25.0.2
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: aws_region
+        - name: BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: bucket_name
+        - name: RELEASE
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: release
+        volumeMounts:
+        - name: release
+          mountPath: /release
+        - name: scripts
+          mountPath: /scripts
+        command:
+          - /scripts/init-latest.sh
+      # Regular containers run next
+      containers:
+      - name: dandelion-release
+        image: erlang:25.0.2
+        env:
+        - name: RELEASE
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: release
+        volumeMounts:
+        - name: release
+          mountPath: /release
+        - name: scripts
+          mountPath: /scripts
+        command:
+          - /scripts/boot-release.sh
+        ports:
+          - containerPort: 8080
+            hostPort: 8080
+        # TODO: configure epmd on 4369
+        # TODO: expose 8080
+      - name: dandelion-sidecar
+        image: erlang:25.0.2
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: aws_region
+        - name: BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: bucket_name
+        - name: RELEASE
+          valueFrom:
+            configMapKeyRef:
+              name: dandelion-env-configmap
+              key: release
+        volumeMounts:
+        - name: release
+          mountPath: /release
+        - name: scripts
+          mountPath: /scripts
+        command:
+          - /scripts/update-loop.sh
+        # TODO: configure epmd on 4369
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dandelion-env-configmap
+  namespace: dandelion
+data:
+  bucket_name: ferd-dandelion
+  aws_region: us-east-1
+  release: dandelion
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dandelion-scripts-configmap
+  namespace: dandelion
+data:
+  init-latest.sh: |
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    RELDIR=${1:-/release}
+    S3_URL="https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+    TAG=$(curl "${S3_URL}/${RELEASE}-latest" -s)
+    wget -nv "${S3_URL}/${RELEASE}-${TAG}.tar.gz" -O "/tmp/${RELEASE}-${TAG}.tar.gz"
+    tar -xvf "/tmp/${RELEASE}-${TAG}.tar.gz" -C ${RELDIR}
+    rm "/tmp/${RELEASE}-${TAG}.tar.gz"
+  boot-release.sh: |
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    RELDIR=${1:-/release}
+    exec ${RELDIR}/bin/${RELEASE} foreground
+  update-loop.sh: |
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    SLEEP=${1:-60}
+    RELDIR=${2:-/release}
+    S3_URL="https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+
+    while true
+    do
+        sleep ${SLEEP}
+        # check if we're up
+        ${RELDIR}/bin/${RELEASE} status
+        # Get the running version
+        CURRENT=$(${RELDIR}/bin/${RELEASE} versions | awk '$3=="permanent" && !vsn { vsn=$2 } $3=="current" { vsn=$2 } END { print vsn }')
+        TAG=$(curl "${S3_URL}/${RELEASE}-latest" -s)
+        if [[ "${CURRENT}" != "${TAG}" ]]; then
+            # TODO: add check for downgrade or un-upgradable release
+            wget -nv "${S3_URL}/${RELEASE}-${TAG}.tar.gz" -O "${RELDIR}/releases/${RELEASE}-${TAG}.tar.gz"
+            ${RELDIR}/bin/${RELEASE} unpack ${TAG}
+            ${RELDIR}/bin/${RELEASE} install ${TAG}
+            ${RELDIR}/bin/${RELEASE} upgrade ${TAG}
+        fi
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dandelion-service
+  namespace: dandelion
+  labels:
+    app: dandelion
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: dandelion
