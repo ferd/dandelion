@@ -1,6 +1,6 @@
 {application, dandelion,
  [{description, "A plant in the wrong place"},
-  {vsn, "0.1.0"},
+  {vsn, "0.1.1"},
   {registered, []},
   {mod, {dandelion_app, []}},
   {applications,

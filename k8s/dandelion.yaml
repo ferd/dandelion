@@ -74,8 +74,6 @@ spec:
         ports:
           - containerPort: 8080
             hostPort: 8080
-        # TODO: configure epmd on 4369
-        # TODO: expose 8080
       - name: dandelion-sidecar
         image: erlang:25.0.2
         env:
@@ -101,7 +99,6 @@ spec:
           mountPath: /scripts
         command:
           - /scripts/update-loop.sh
-        # TODO: configure epmd on 4369
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -149,11 +146,13 @@ data:
         CURRENT=$(${RELDIR}/bin/${RELEASE} versions | awk '$3=="permanent" && !vsn { vsn=$2 } $3=="current" { vsn=$2 } END { print vsn }')
         TAG=$(curl "${S3_URL}/${RELEASE}-latest" -s)
         if [[ "${CURRENT}" != "${TAG}" ]]; then
-            # TODO: add check for downgrade or un-upgradable release
-            wget -nv "${S3_URL}/${RELEASE}-${TAG}.tar.gz" -O "${RELDIR}/releases/${RELEASE}-${TAG}.tar.gz"
-            ${RELDIR}/bin/${RELEASE} unpack ${TAG}
-            ${RELDIR}/bin/${RELEASE} install ${TAG}
-            ${RELDIR}/bin/${RELEASE} upgrade ${TAG}
+            IS_UPGRADE=$(echo "$NEW_VSN $OLD_VSN" | awk -vFS='[. ]' '($1==$4 && $2>$5) || ($1==$4 && $2>=$5 && $3>$6) {print 1; exit} {print 0}')
+            if [[ $IS_UPGRADE -eq 1 ]]; then
+              wget -nv "${S3_URL}/${RELEASE}-${TAG}.tar.gz" -O "${RELDIR}/releases/${RELEASE}-${TAG}.tar.gz"
+              ${RELDIR}/bin/${RELEASE} unpack ${TAG}
+              ${RELDIR}/bin/${RELEASE} install ${TAG}
+              ${RELDIR}/bin/${RELEASE} upgrade ${TAG}
+            fi
         fi
     done
 ---
