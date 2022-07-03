@@ -10,6 +10,7 @@ on:
 env:
   BUCKET_NAME: ferd-dandelion
   RELNAME: dandelion
+  REGION: us-east-1
 
 jobs:
 
@@ -22,13 +23,43 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Fetch manifest version
+        run: |
+          S3_URL="https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+          RET=0
+          NEW_VSN=${GITHUB_REF##*/v}
+          OLD_VSN=$(curl "${S3_URL}/${RELEASE}-latest" -s --fail) || RET=$?
+          echo "VSN=$NEW_VSN" >> $GITHUB_ENV
+          if [ $RET -eq 0 ]; then
+              echo "OLD_VSN=$OLD_VSN" >> $GITHUB_ENV
+              IS_UPGRADE=$(echo "$NEW_VSN $OLD_VSN" | awk -vFS='[. ]' '($1==$4 && $2>$5) || ($1==$4 && $2>=$5 && $3>$6) {print 1; exit} {print 0}')
+              if [ "$IS_UPGRADE" -eq 1 ]; then
+                  echo "RELUP=1" >> $GITHUB_ENV
+              else
+                  echo "RELUP=0" >> $GITHUB_ENV
+              fi
+          else
+            echo "RELUP=0" >> $GITHUB_ENV
+          fi
+      - run: |
+          echo "${{ env.OLD_VSN }} -> ${{ env.VSN }} : ${{ env.RELUP }}"
       - name: Build a tarball
         working-directory: erlang
         run: |
-          rebar3 as prod tar
-          BUILD=$(ls _build/prod/rel/${{ env.RELNAME }}/${{ env.RELNAME }}-*.tar.gz)
+          if [ ${{ env.RELUP }} -eq 1 ]; then
+            git checkout v${{ env.OLD_VSN }}
+            rebar3 release
+            git checkout v${{ env.VSN }}
+            rebar3 release
+            rebar3 appup generate
+            rebar3 relup -n ${{ env.RELNAME }} -v ${{ env.VSN }} -u ${{ env.OLD_VSN }}
+          else
+            rebar3 release
+          fi
+          rebar3 tar
+          BUILD=$(ls _build/default/rel/${{ env.RELNAME }}/${{ env.RELNAME }}-*.tar.gz)
           mkdir ../_artifacts
-          cp $BUILD ../_artifacts/${{ env.RELNAME }}-${GITHUB_REF##*/}.tar.gz
+          cp $BUILD ../_artifacts/${{ env.RELNAME }}-${{ env.VSN }}.tar.gz
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -60,6 +91,6 @@ jobs:
       - name:  Put release in bucket
         run: |
           aws s3 cp _artifacts/${{ env.RELNAME }}-*.tar.gz s3://${{ env.BUCKET_NAME }}/
-          echo ${GITHUB_REF##*/} > _artifacts/${{ env.RELNAME }}-latest
+          echo ${GITHUB_REF##*/v} > _artifacts/${{ env.RELNAME }}-latest
           aws s3 cp _artifacts/${{ env.RELNAME }}-latest s3://${{ env.BUCKET_NAME }}/
 
