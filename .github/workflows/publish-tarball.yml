@@ -23,13 +23,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Fetch manifest version
         run: |
-          S3_URL="https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
+          S3_URL="https://${BUCKET_NAME}.s3.${{ env.REGION }}.amazonaws.com"
           RET=0
           NEW_VSN=${GITHUB_REF##*/v}
-          OLD_VSN=$(curl "${S3_URL}/${RELEASE}-latest" -s --fail) || RET=$?
           echo "VSN=$NEW_VSN" >> $GITHUB_ENV
+          OLD_VSN=$(curl "${S3_URL}/${{ env.RELNAME }}-latest" -s --fail) || RET=$?
+          echo "${S3_URL}/${{ env.RELNAME }}-latest" $OLD_VSN "-" $RET
           if [ $RET -eq 0 ]; then
               echo "OLD_VSN=$OLD_VSN" >> $GITHUB_ENV
               IS_UPGRADE=$(echo "$NEW_VSN $OLD_VSN" | awk -vFS='[. ]' '($1==$4 && $2>$5) || ($1==$4 && $2>=$5 && $3>$6) {print 1; exit} {print 0}')
