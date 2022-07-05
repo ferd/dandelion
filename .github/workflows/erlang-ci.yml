@@ -26,5 +26,3 @@ jobs:
     - name: Release can be built
       working-directory: erlang
       run: rebar3 do release, tar
-
-    ## TODO: check about version bumps

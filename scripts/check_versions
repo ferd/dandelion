@@ -1,0 +1,86 @@
+#!/usr/bin/env escript
+-module(check_versions).
+-mode(compile).
+
+main([]) ->
+    main([os:cmd("git rev-parse --abbrev-ref HEAD")]);
+main([Branch]) ->
+    SrcPrefix = "erlang/apps/",
+    "v"++_LastVsn = LastTag = string:trim(os:cmd("git tag -l --sort=committerdate 'v*.*.*' | tail -n 1")),
+    io:format("switching to ~ts and back to ~ts~n", [LastTag, Branch]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("git checkout "++LastTag)]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 do release, tar")]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("git checkout "++Branch)]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 release")]),
+    RelFiles = filelib:wildcard("_build/default/rel/*/releases/**/*.rel"),
+    case length(RelFiles) of
+        2 ->
+            ok;
+        N ->
+            io:format("Expected two find two releases, found ~p~n"
+                      "The current release likely has the same version as "
+                      "an older one.~n"
+                      "Bump up the release version to generate relups.~n",
+                      [N]),
+            init:stop(1)
+    end,
+    Releases = [Content || Path <- RelFiles,
+                           {ok, [Content]} <- [file:consult(Path)]],
+    case [{ERTS, to_vsn(VsnStr)} || {release, {_Name, VsnStr}, ERTS, _Apps} <- Releases] of
+        [{_,{V1,_,_}},{_,{V2,_,_}}] when V1 =/= V2 ->
+            io:format("RESTART version bumped, ignoring relup check.~n", []),
+            init:stop(0);
+        [{ERTS,_}, {ERTS,_}] ->
+            ok;
+        [{_, {V1,_,_}}, {_, {V1,_,_}}] ->
+            io:format("The ERTS version changed; the release version should "
+                      "be bumped accordingly (RESTART+1.RELUP.RELOAD)~n", []),
+            init:stop(1)
+    end,
+
+    ChangedFiles = [Sub
+                    || Path <- diff_lines(os:cmd("git diff "++LastTag)),
+                       Sub <- [string:prefix(Path, SrcPrefix)],
+                       Sub =/= nomatch],
+    AppsChanged = [list_to_atom(App) ||
+                   App <- lists:usort([hd(filename:split(Name)) || Name <- ChangedFiles])],
+    [{_, OldStr, Old}, {_, NewStr, New}] = lists:sort(
+        [{to_vsn(VsnStr), VsnStr, Apps}
+         || {release, {_Name, VsnStr}, _ERTS, Apps} <- Releases]
+    ),
+    Incorrect = lists:filter(
+        fun(App) ->
+                {_, OldVsn} = lists:keyfind(App, 1, Old),
+                {_, NewVsn} = lists:keyfind(App, 1, New),
+                OldVsn == NewVsn
+        end,
+        AppsChanged
+    ),
+    case Incorrect of
+        [] ->
+            ok;
+        _ ->
+            io:format("Applications have changes applied and need a "
+                      "version bump: ~p~n", [Incorrect]),
+            init:stop(1)
+    end,
+    %% Build relup phase
+    io:format("~ts~n", [os:cmd("rebar3 appup generate")]),
+    io:format("~ts~n", [os:cmd("rebar3 relup -n dandelion -v "++NewStr++" -u "++OldStr)]),
+    io:format("~ts~n", [os:cmd("rebar3 tar")]),
+    io:format("OLD: _build/default/rel/dandelion/dandelion-~ts.tar.gz~n"
+              "NEW: _build/default/rel/dandelion/dandelion-~ts.tar.gz~n",
+              [OldStr, NewStr]),
+    init:stop(0).
+
+to_vsn(Str) ->
+    [Restart, Relup, Reload] = [list_to_integer(S) || S <- string:lexemes(Str, ".")],
+    {Restart, Relup, Reload}.
+
+diff_lines(Str) ->
+    [string:sub_string(Path, 3)
+     || Line <- string:lexemes(Str, "\n"),
+        nomatch =/= string:prefix(Line, "+++") orelse
+        nomatch =/= string:prefix(Line, "---"),
+        [_, Path |_ ] <- [string:lexemes(Line, " ")]
+    ].

@@ -39,8 +39,8 @@ handle_cast(_Cast, State) ->
 handle_info(display, State=#{sock := Sock}) ->
     Str = "    \n"
           "   @\n"
-          " \ |\n"
-          "__\!/__\n\n",
+          " \\ |\n"
+          "__\\!/__\n\n",
     gen_tcp:send(Sock, Str),
     display_event(),
     {noreply, State};

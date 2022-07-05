@@ -11,7 +11,7 @@ metadata:
   name: dandelion-deployment
   namespace: dandelion
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: dandelion
@@ -146,7 +146,7 @@ data:
         CURRENT=$(${RELDIR}/bin/${RELEASE} versions | awk '$3=="permanent" && !vsn { vsn=$2 } $3=="current" { vsn=$2 } END { print vsn }')
         TAG=$(curl "${S3_URL}/${RELEASE}-latest" -s)
         if [[ "${CURRENT}" != "${TAG}" ]]; then
-            IS_UPGRADE=$(echo "$NEW_VSN $OLD_VSN" | awk -vFS='[. ]' '($1==$4 && $2>$5) || ($1==$4 && $2>=$5 && $3>$6) {print 1; exit} {print 0}')
+            IS_UPGRADE=$(echo "$TAG $CURRENT" | awk -vFS='[. ]' '($1==$4 && $2>$5) || ($1==$4 && $2>=$5 && $3>$6) {print 1; exit} {print 0}')
             if [[ $IS_UPGRADE -eq 1 ]]; then
               wget -nv "${S3_URL}/${RELEASE}-${TAG}.tar.gz" -O "${RELDIR}/releases/${RELEASE}-${TAG}.tar.gz"
               ${RELDIR}/bin/${RELEASE} unpack ${TAG}
