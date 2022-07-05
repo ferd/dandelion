@@ -37,7 +37,7 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info(display, State=#{sock := Sock}) ->
-    Str = "    \n"
+    Str = "      *\n"
           "   @\n"
           " \\ |\n"
           "__\\!/__\n\n",
