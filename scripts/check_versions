@@ -9,9 +9,9 @@ main([Branch]) ->
     "v"++_LastVsn = LastTag = string:trim(os:cmd("git tag -l --sort=committerdate 'v*.*.*' | tail -n 1")),
     io:format("switching to ~ts and back to ~ts~n", [LastTag, Branch]),
     io:format("~p: ~ts~n", [?LINE, os:cmd("git checkout "++LastTag)]),
-    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 do release, tar")]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 do clean -a, release, tar")]),
     io:format("~p: ~ts~n", [?LINE, os:cmd("git checkout "++Branch)]),
-    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 release")]),
+    io:format("~p: ~ts~n", [?LINE, os:cmd("rebar3 do clean -a, release")]),
     RelFiles = filelib:wildcard("_build/default/rel/*/releases/**/*.rel"),
     case length(RelFiles) of
         2 ->
