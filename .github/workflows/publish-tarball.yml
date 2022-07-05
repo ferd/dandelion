@@ -50,10 +50,11 @@ jobs:
         working-directory: erlang
         run: |
           if [ ${{ env.RELUP }} -eq 1 ]; then
+            ORIG=$(/usr/bin/git log -1 --format='%H')
             git checkout v${{ env.OLD_VSN }}
-            rebar3 release
-            git checkout v${{ env.VSN }}
-            rebar3 release
+            rebar3 do clean -a, release
+            git checkout $ORIG
+            rebar3 do clean -a, release
             rebar3 appup generate
             rebar3 relup -n ${{ env.RELNAME }} -v ${{ env.VSN }} -u ${{ env.OLD_VSN }}
           else
